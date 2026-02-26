@@ -15,7 +15,15 @@ provision:
       - size: ">= 60 GB"
 
 /edge-x86-commit:
-  summary: Test edge commit
+  summary: Test OSTree commit deployed via kickstart
+  description: |
+    Image type: edge-commit (OSTree repository tarball)
+    Deployment method: Network boot (PXE) with kickstart, OSTree commit served via HTTP
+    Use case: Developer/admin who wants full control over installation using a custom kickstart.
+
+    Test intent: Verify the end-to-end lifecycle of an OSTree commit -
+    build, install via kickstart (UEFI), upgrade via rpm-ostree, and validate
+    post-deployment system health.
   environment+:
     TEST_CASE: edge-commit
 
