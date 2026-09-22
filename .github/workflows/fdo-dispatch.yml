@@ -1,0 +1,49 @@
+---
+name: FDO test (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      compose:
+        description: "Testing Farm compose name (e.g. RHEL-10.2-Nightly or RHEL-9.8.0-Nightly)"
+        required: true
+        type: string
+      arch:
+        description: "Architecture to test"
+        required: false
+        default: both
+        type: choice
+        options:
+          - both
+          - x86_64
+          - aarch64
+
+permissions: {}
+
+jobs:
+  setup:
+    permissions: {}
+    runs-on: ubuntu-latest
+    outputs:
+      archs: ${{ steps.arch_matrix.outputs.archs }}
+    steps:
+      - name: Build architecture matrix
+        id: arch_matrix
+        run: |
+          if [ "${{ inputs.arch }}" = "both" ]; then
+            echo 'archs=["x86_64","aarch64"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'archs=["${{ inputs.arch }}"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJson(needs.setup.outputs.archs) }}
+    uses: ./.github/workflows/fdo-test.yml
+    with:
+      compose: ${{ inputs.compose }}
+      arch: ${{ matrix.arch }}
+    secrets: inherit
