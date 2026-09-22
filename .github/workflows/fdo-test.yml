@@ -1,0 +1,96 @@
+---
+name: FDO test (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      compose:
+        required: true
+        type: string
+      arch:
+        required: true
+        type: string
+      git_url:
+        required: false
+        type: string
+        default: ""
+      git_ref:
+        required: false
+        type: string
+        default: ""
+      compose_id:
+        required: false
+        type: string
+        default: ""
+      update_pr_status:
+        required: false
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  fdo-test:
+    permissions:
+      contents: read
+      statuses: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Route compose to implementation, distro and plan
+        id: route
+        run: |
+          set -euo pipefail
+          compose="${{ inputs.compose }}"
+          # Full dotted version, e.g. 10.2 or 9.8.0
+          ver=$(printf '%s' "$compose" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+          major=${ver%%.*}
+          minor=$(printf '%s' "$ver" | cut -d. -f2)
+          arch="${{ inputs.arch }}"
+          if [ "$arch" = "aarch64" ]; then archsuffix="arm"; else archsuffix="x86"; fi
+          if [ "$major" = "10" ]; then impl="go"; else impl="rust"; fi
+          echo "impl=$impl" >> "$GITHUB_OUTPUT"
+          # Plan leaves are /x86 and /arm (matching edge-test.fmf), not the TF
+          # arch value x86_64/aarch64 - select with the short arch suffix.
+          echo "plan_regex=fdo-$impl/$archsuffix" >> "$GITHUB_OUTPUT"
+          echo "tmt_context=arch=$arch;distro=rhel-$major-$minor" >> "$GITHUB_OUTPUT"
+          echo "status_name=fdo-rhel-$major.$minor-$archsuffix" >> "$GITHUB_OUTPUT"
+          echo "label=$major.$minor | $arch" >> "$GITHUB_OUTPUT"
+
+      - name: Run the tests
+        uses: sclorg/testing-farm-as-github-action@230555baceb860aa468d216f1822974836b965d1  # v4.3.1
+        with:
+          compose: ${{ inputs.compose }}
+          arch: ${{ inputs.arch }}
+          api_key: ${{ secrets.TF_API_KEY }}
+          git_url: ${{ inputs.git_url || format('{0}/{1}', github.server_url, github.repository) }}
+          git_ref: ${{ inputs.git_ref || github.ref }}
+          update_pull_request_status: ${{ inputs.update_pr_status }}
+          tmt_context: ${{ steps.route.outputs.tmt_context }}
+          pull_request_status_name: ${{ steps.route.outputs.status_name }}
+          tmt_plan_regex: ${{ steps.route.outputs.plan_regex }}
+          tf_scope: private
+          secrets: "DOWNLOAD_NODE=${{ secrets.DOWNLOAD_NODE }}"
+          variables: "ARCH=${{ inputs.arch }}"
+
+      - name: Send test results to Slack via webhook
+        if: ${{ always() }}
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            emoji=":white_check_mark:"
+          else
+            emoji=":x:"
+          fi
+          cid="${{ inputs.compose_id }}"
+          [ -n "$cid" ] || cid="${{ inputs.compose }}"
+          curl -X POST -H 'Content-type: application/json' --data '{
+            "text": "Testing Farm Results for FDO",
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "'"$emoji"' *FDO | ${{ steps.route.outputs.label }} | Compose-id: '"$cid"' |* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Test Log>"
+                }
+              }
+            ]
+          }' ${{ secrets.SLACK_WEBHOOK_URL_RHEL_EDGE_CI }}
