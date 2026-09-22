@@ -1,0 +1,87 @@
+summary: FDO go-fdo-client tests against a RHEL 10.x nightly compose
+description: |
+    Runs the go-fdo-ci package-mode client tests against the go-fdo-client
+    package taken from the RHEL 10.x nightly compose under test. go-fdo-server*
+    is installed from the same nightly compose as a runtime dependency.
+
+    Test scripts are discovered from go-fdo-ci at ref main so they are not
+    duplicated here; package-mode tests install straight from the provisioned
+    nightly repos. The bootc client test (tag:bootc) is deliberately EXCLUDED
+    for now: it needs the additive upstream change (install go-fdo-client from
+    the nightly compose instead of Copr) that is the final task of this plan.
+    Once that lands, widen the filter to "tag:client" to pick bootc up too. The
+    "tag:client & tag:e2e" filter matches the proven selection used by the
+    repo's previous FDO plan; Task 0 confirms exactly which non-bootc client
+    tests it covers.
+
+discover:
+  how: fmf
+  url: https://github.com/fido-device-onboard/go-fdo-ci
+  ref: main
+  path: /test/fmf/tests
+  filter: "tag:client & tag:e2e"
+
+provision:
+  hardware:
+    virtualization:
+      is-supported: true
+    cpu:
+      processors: ">= 2"
+    memory: ">= 6 GB"
+    disk:
+      - size: ">= 30 GB"
+
+prepare:
+  - how: shell
+    name: Install go-fdo-client and go-fdo-server from the nightly compose
+    script: |
+      set -euxo pipefail
+      dnf install -y \
+        go-fdo-client \
+        go-fdo-server \
+        go-fdo-server-manufacturer \
+        go-fdo-server-owner \
+        go-fdo-server-rendezvous
+      rpm -q go-fdo-client go-fdo-server go-fdo-server-manufacturer go-fdo-server-owner go-fdo-server-rendezvous
+
+  - how: install
+    package:
+      - golang
+      - make
+      - openssl
+      - curl
+      - git
+      - jq
+      - npm
+      - sqlite
+      - podman
+      - skopeo
+      - wget
+      - xorriso
+      - expect
+      - createrepo_c
+      - qemu-img
+      - qemu-kvm
+      - libvirt-client
+      - libvirt-daemon-kvm
+      - virt-install
+      - firewalld
+      - lorax
+      - gobject-introspection
+      - rpm-build
+      - go-rpm-macros
+
+execute:
+  how: tmt
+
+/x86:
+  summary: go-fdo-client tests on x86_64
+  adjust+:
+    - when: arch != x86_64
+      enabled: false
+
+/arm:
+  summary: go-fdo-client tests on aarch64
+  adjust+:
+    - when: arch != aarch64
+      enabled: false
